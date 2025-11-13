@@ -37,6 +37,29 @@ deploy:
   only:
     - master
 
+  before_script:
+    - apk add --no-cache openssh bash curl
+
   script:
-    # Ainda vamos fazer, calma!
-    - echo "Fazer o deploy na EC2 $CI_COMMIT_BRANCH branch."
+    - echo "$SSH_PRIVATE_KEY" > id_rsa && chmod 600 id_rsa
+
+    - ssh -o StrictHostKeyChecking=no -i id_rsa $EC2_USER@$EC2_HOST "
+      sudo apt update -y &&
+      sudo apt install -y awscli
+      "
+      
+    - ssh -o StrictHostKeyChecking=no -i id_rsa $EC2_USER@$EC2_HOST "
+      aws ecr get-login-password --region ${AWS_DEFAULT_REGION} |
+      docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+      "
+      
+    # Envia múltiplos arquivos necessários para o deploy
+    - scp -o StrictHostKeyChecking=no -i id_rsa docker-compose.yaml Dockerfile $EC2_USER@$EC2_HOST:~/
+
+    - ssh -o StrictHostKeyChecking=no -i id_rsa $EC2_USER@$EC2_HOST "
+      docker compose pull &&
+      docker stop ${IMAGE_NAME} || true &&
+      docker container rm ${IMAGE_NAME} || true &&
+      docker compose up -d --build --force-recreate --no-deps
+      "
+
